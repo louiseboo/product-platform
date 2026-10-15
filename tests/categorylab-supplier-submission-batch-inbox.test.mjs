@@ -69,6 +69,7 @@ test.after(async () => {
 test.beforeEach(async () => {
   records = structuredClone(seedRecords);
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.route("https://cdn.jsdelivr.net/**", route => route.abort());
   await page.addInitScript(() => {
     localStorage.setItem("burger-bom-tool-v1", JSON.stringify({
       devRecords: [{ supplierSubmissionId: "confirmed-0" }]

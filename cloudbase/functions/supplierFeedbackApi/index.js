@@ -132,6 +132,7 @@ function normalizeRecordPayload(payload = {}) {
     test_category: nullableText(payload.test_category),
     campaign_year: nullableText(payload.campaign_year),
     campaign: nullableText(payload.campaign),
+    maintenance_purpose: nullableText(payload.maintenance_purpose),
     version_change: nullableText(payload.version_change),
     finished_spec: nullableText(payload.finished_spec),
     length_mm: nullableText(payload.length_mm),
@@ -160,6 +161,7 @@ function sanitizePublicSubmissionPayload(payload = {}) {
   delete normalized.key_blocker;
   delete normalized.campaign_year;
   delete normalized.campaign;
+  delete normalized.maintenance_purpose;
   return normalized;
 }
 
@@ -174,6 +176,9 @@ function normalizeFeedbackPayload(payload = {}) {
 
 function normalizeAdminUpdatePayload(payload = {}) {
   const normalized = normalizeRecordPayload(payload);
+  if (Object.hasOwn(payload, "maintenance_purpose") && normalized.maintenance_purpose && !["产品改进", "产品复制"].includes(normalized.maintenance_purpose)) {
+    throw new Error("老品维护测试目的请选择产品改进或产品复制。");
+  }
   const patch = {};
   Object.keys(normalized).forEach(key => {
     if (Object.hasOwn(payload, key)) patch[key] = normalized[key];
@@ -197,6 +202,11 @@ function validateProductGroupingRecords(records = []) {
   if (suppliers.size !== 1 || records.some(record => !normalizeGroupingSupplier(record.supplier_name))) {
     throw new Error("只能合并同一供应商的产品记录。");
   }
+  const brands = new Set(records.map(record => {
+    const category = text(record.test_category);
+    return category.startsWith("Peet's") ? "peets" : category.startsWith("Ora") ? "ora" : "legacy";
+  }));
+  if (brands.size > 1) throw new Error("只能合并同一品牌的产品记录，请先校准测试类别。");
   return true;
 }
 
@@ -222,6 +232,9 @@ function publicRecord(record = {}) {
 
 function publicSubmissionRecord(record = {}) {
   const {
+    campaign_year,
+    campaign,
+    maintenance_purpose,
     edit_token_hash,
     notification_status,
     notification_sent_at,

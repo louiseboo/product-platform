@@ -318,6 +318,11 @@
       background: #ebe3de;
       color: #4c4039;
     }
+    .test-category-bar.special-section {
+      border-color: #7d748b;
+      background: #eae6ef;
+      color: #51475d;
+    }
     .test-category-bar.uncategorized-section {
       border-color: #8e877a;
       background: #eeeae3;
@@ -1479,6 +1484,7 @@
       .crowd-campaign > summary { padding: 14px; }
       .crowd-campaign > summary span { display: block; margin: 4px 0 0 16px; }
     }
+    [data-pm-campaign][hidden], [data-pm-maintenance][hidden], [data-campaign-legacy-note][hidden] { display: none; }
   </style>
   <style id="inbox-ui-refresh">
     :root {
@@ -1619,7 +1625,13 @@
     .test-category-bar {
       min-height: 40px;
       padding: 8px 14px 8px 12px;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
     }
+
+    .test-category-meta { width: 100%; flex-wrap: wrap; justify-content: flex-start; text-align: left; }
+    .test-category-caret { margin-left: auto; }
 
     .campaign-group-bar {
       min-height: 37px;
@@ -2013,24 +2025,39 @@
         "12月｜迪克森少校 2"
       ],
       "2027": [
-        "01月｜CNY（含烘焙 / 三明治换新）",
-        "02月｜优胜美地",
+        "01月｜优胜美地",
+        "02月｜CNY",
         "03月｜芝士分子周年庆",
-        "04月｜摘星档期（含烘焙 / 三明治换新）",
+        "04月｜创世巨星",
         "05月｜云南档期 1",
-        "06月｜云瑰档期 2",
-        "07月｜埃塞（含烘焙 / 三明治换新）",
+        "06月｜云南档期 2",
+        "07月｜埃塞利姆古吉",
         "08月｜桂花档期 1",
         "09月｜桂花档期 2",
-        "10月｜大航海家（含烘焙 / 三明治换新）",
+        "10月｜大航海家",
         "11月｜迪克森少校 1",
         "12月｜迪克森少校 2"
       ]
     };
+    const TEST_CATEGORY_KINDS = [
+      { key: "campaign", label: "档期测试" },
+      { key: "proposal", label: "新品提案" },
+      { key: "maintenance", label: "老品维护" },
+      { key: "special", label: "特殊测试" }
+    ];
+    const TEST_CATEGORY_DEFINITIONS = [
+      ...[{ key: "peets", label: "Peet's" }, { key: "ora", label: "Ora" }].flatMap(brand =>
+        TEST_CATEGORY_KINDS.map(kind => ({ key: `${brand.key}-${kind.key}`, kind: kind.key, label: `${brand.label}${kind.label}` }))
+      ),
+      ...TEST_CATEGORY_KINDS.map(kind => ({ key: kind.key, kind: kind.key, label: `${kind.label}（历史未标品牌）` })),
+      { key: "uncategorized", kind: "uncategorized", label: "未分类" }
+    ];
+    const TEST_CATEGORY_OPTIONS = TEST_CATEGORY_DEFINITIONS.slice(0, 8).map(item => item.label);
+    const MAINTENANCE_PURPOSES = ["", "产品改进", "产品复制"];
     const CAMPAIGN_YEARS = ["2026", "2027"];
     const EDITABLE_RECORD_FIELDS = [
       "product_name", "supplier_name", "version_label", "sample_date", "product_type", "test_category",
-      "campaign_year", "campaign", "version_change", "finished_spec", "length_mm", "width_mm", "height_mm",
+      "campaign_year", "campaign", "maintenance_purpose", "version_change", "finished_spec", "length_mm", "width_mm", "height_mm",
       "ingredients_structure", "quote_rmb", "core_ingredients_selling_points", "tasting_scene", "tasting_feedback",
       "round_conclusion", "next_step_direction", "key_blocker"
     ];
@@ -2310,7 +2337,7 @@
       if (selectedYear === "2027" && ["01月｜CNY", "01月｜CNY（含烘焙 / 三明治换新）"].includes(value)) {
         return "01月｜CNY（含烘焙 / 三明治换新）";
       }
-      return value;
+      return value.replace(/^(\d{1,2})月[：:｜]/, (_, month) => `${month.padStart(2, "0")}月｜`);
     }
 
     function campaignOptions(year) {
@@ -2331,7 +2358,7 @@
       const year = effectiveCampaignYear(row);
       const campaign = canonicalCampaignName(year, row.campaign);
       return `
-        <div class="field-label">
+        <div class="field-label" data-pm-campaign ${testCategoryKind(row.test_category) === "campaign" || row.campaign ? "" : "hidden"}>
           <span>档期年份 / 名称</span>
           <div class="campaign-picker">
             <select data-field="campaign_year" data-campaign-year ${roleCanEdit() ? "" : "disabled"}>
@@ -2343,6 +2370,7 @@
               <div class="campaign-options hidden" data-campaign-options>${campaignOptionButtons(year, campaign)}</div>
             </div>
           </div>
+          <small data-campaign-legacy-note ${campaign && !campaignOptions(year).includes(campaign) ? "" : "hidden"}>原记录为历史档期名称，请对照 PMO 核对。</small>
         </div>
       `;
     }
@@ -2390,7 +2418,8 @@
     }
 
     function automaticProductKey(row = {}) {
-      return `${normalizeGroupingText(row.supplier_name)}::${normalizeGroupingText(row.product_name)}`;
+      const brand = testCategoryBrand(row.test_category);
+      return `${brand === "legacy" ? "" : `${brand}::`}${normalizeGroupingText(row.supplier_name)}::${normalizeGroupingText(row.product_name)}`;
     }
 
     function groupingTime(row = {}) {
@@ -2428,8 +2457,9 @@
         const supplier = normalizeGroupingText(row.supplier_name);
         const name = normalizeGroupingText(row.product_name);
         if (!supplier || !name) return;
-        const entry = aliases.get(groupId) || { supplier, names: new Set() };
-        if (entry.supplier === supplier) entry.names.add(name);
+        const brand = testCategoryBrand(row.test_category);
+        const entry = aliases.get(groupId) || { supplier, brand, names: new Set() };
+        if (entry.supplier === supplier && entry.brand === brand) entry.names.add(name);
         aliases.set(groupId, entry);
       });
       return aliases;
@@ -2437,15 +2467,17 @@
 
     function effectiveProductGroupKey(row = {}, allRecords = []) {
       const groupId = String(row.product_group_id || "").trim();
-      if (groupId) return `manual:${groupId}`;
+      const brand = testCategoryBrand(row.test_category);
+      const manualKey = id => `manual:${id}${brand === "legacy" ? "" : `::${brand}`}`;
+      if (groupId) return manualKey(groupId);
       const supplier = normalizeGroupingText(row.supplier_name);
       const name = normalizeGroupingText(row.product_name);
       if (supplier && name) {
         const matchingManualGroups = [];
         manualGroupAliases(allRecords).forEach((entry, id) => {
-          if (entry.supplier === supplier && entry.names.has(name)) matchingManualGroups.push(id);
+          if (entry.supplier === supplier && entry.brand === testCategoryBrand(row.test_category) && entry.names.has(name)) matchingManualGroups.push(id);
         });
-        if (matchingManualGroups.length === 1) return `manual:${matchingManualGroups[0]}`;
+        if (matchingManualGroups.length === 1) return manualKey(matchingManualGroups[0]);
       }
       return `auto:${automaticProductKey(row)}`;
     }
@@ -2467,7 +2499,7 @@
           group.latest = [...group.records].sort((a, b) => groupingTime(b) - groupingTime(a))[0] || {};
           group.supplier = group.latest.supplier_name || group.records[0]?.supplier_name || "";
           group.name = group.latest.product_name || group.records[0]?.product_name || "";
-          group.productGroupId = group.key.startsWith("manual:") ? group.key.slice(7) : "";
+          group.productGroupId = group.key.startsWith("manual:") ? group.key.slice(7).replace(/::(?:peets|ora)$/, "") : "";
           group.pendingCount = group.records.filter(row => row.status !== "已确认").length;
           group.confirmedCount = group.records.filter(row => row.status === "已确认").length;
           return group;
@@ -2513,7 +2545,7 @@
       const sourceSupplier = normalizeGroupingText(sourceGroup.supplier);
       const sourceNames = [...new Set(sourceGroup.records.map(row => row.product_name).filter(Boolean))];
       return (groups || [])
-        .filter(group => group.key !== sourceGroup.key && normalizeGroupingText(group.supplier) === sourceSupplier)
+        .filter(group => group.key !== sourceGroup.key && normalizeGroupingText(group.supplier) === sourceSupplier && testCategoryBrand(group.latest?.test_category) === testCategoryBrand(sourceGroup.latest?.test_category))
         .map(group => {
           const targetNames = [...new Set(group.records.map(row => row.product_name).filter(Boolean))];
           let best = { score: 0, isCandidate: false, reason: "" };
@@ -2605,12 +2637,12 @@
     }
 
     function compareWorkflowGroups(a, b) {
-      const categoryOrder = ["campaign", "proposal", "maintenance", "uncategorized"];
+      const categoryOrder = TEST_CATEGORY_DEFINITIONS.map(item => item.key);
       const aCategory = testCategorySectionKey(a);
       const bCategory = testCategorySectionKey(b);
       const categoryDifference = optionRank(categoryOrder, aCategory) - optionRank(categoryOrder, bCategory);
       if (categoryDifference) return categoryDifference;
-      if (aCategory === "campaign") {
+      if (TEST_CATEGORY_DEFINITIONS.find(item => item.key === aCategory)?.kind === "campaign") {
         const aCampaign = campaignGroupIdentity(a);
         const bCampaign = campaignGroupIdentity(b);
         if (aCampaign !== bCampaign) {
@@ -2642,6 +2674,7 @@
           deriveVersionStage(row, records),
           row.product_type,
           row.test_category,
+          row.maintenance_purpose,
           row.campaign_year,
           row.campaign,
           row.version_change,
@@ -2756,12 +2789,39 @@
       return groups.sort((a, b) => groupingTime(b.latest) - groupingTime(a.latest));
     }
 
+    function testCategoryBrand(value) {
+      const category = String(value || "").trim();
+      if (category.startsWith("Peet's")) return "peets";
+      if (category.startsWith("Ora")) return "ora";
+      return "legacy";
+    }
+
+    function testCategoryKind(value) {
+      const category = String(value || "").trim();
+      return TEST_CATEGORY_KINDS.find(item => category === item.label || category === `Peet's${item.label}` || category === `Ora${item.label}`)?.key || "uncategorized";
+    }
+
+    function testCategoryOptions(current) {
+      return ["", ...TEST_CATEGORY_OPTIONS, ...(current && !TEST_CATEGORY_OPTIONS.includes(current) ? [current] : [])];
+    }
+
+    function updatePmIntentFields() {
+      const row = activeRecord() || {};
+      const kind = testCategoryKind(detailValue("test_category", row.test_category));
+      const campaign = appPanel.querySelector("[data-pm-campaign]");
+      const purpose = appPanel.querySelector("[data-pm-maintenance]");
+      if (campaign) campaign.hidden = kind !== "campaign" && !detailValue("campaign", row.campaign || "");
+      if (purpose) purpose.hidden = kind !== "maintenance" && !detailValue("maintenance_purpose", row.maintenance_purpose || "");
+      const year = detailValue("campaign_year", effectiveCampaignYear(row));
+      const name = detailValue("campaign", row.campaign || "").trim();
+      const note = appPanel.querySelector("[data-campaign-legacy-note]");
+      if (note) note.hidden = !name || campaignOptions(year).includes(name);
+    }
+
     function testCategorySectionKey(group) {
       const category = String(latestGroupValue(group, "test_category") || "").trim();
-      if (category === "档期测试") return "campaign";
-      if (category === "新品提案") return "proposal";
-      if (category === "老品维护") return "maintenance";
-      return "uncategorized";
+      const branded = TEST_CATEGORY_DEFINITIONS.slice(0, 8).find(item => item.label === category);
+      return branded?.key || testCategoryKind(category);
     }
 
     function isPausedProductGroup(group, filter = statusFilter) {
@@ -2806,12 +2866,7 @@
     }
 
     function buildTestCategorySections(groups = [], filter = statusFilter) {
-      const definitions = [
-        { key: "campaign", label: "档期测试" },
-        { key: "proposal", label: "新品提案" },
-        { key: "maintenance", label: "老品维护" },
-        { key: "uncategorized", label: "未分类" }
-      ];
+      const definitions = TEST_CATEGORY_DEFINITIONS;
       const buckets = new Map(definitions.map(definition => [definition.key, []]));
       groups.forEach(group => buckets.get(testCategorySectionKey(group)).push(group));
       return definitions
@@ -2819,9 +2874,9 @@
           const sectionGroups = [...buckets.get(definition.key)];
           return {
             ...definition,
-            note: definition.key === "campaign" && ["已确认", "已导入"].includes(filter)
+            note: definition.kind === "campaign" && ["已确认", "已导入"].includes(filter)
               ? "档期 → 类型 → 产品 → 版本"
-              : definition.key === "proposal"
+              : definition.kind === "proposal"
                 ? "类型 → 供应商 → 产品 → 版本"
                 : "类型 → 产品 → 版本",
             groups: sectionGroups
@@ -2856,12 +2911,12 @@
     function visibleProductGroupsInDisplayOrder() {
       return visibleProductSections().flatMap(section => {
         if (sortMode !== "workflow") return section.groups;
-        if (section.key === "campaign") {
+        if (section.kind === "campaign") {
           return campaignGroupSections(section.groups).flatMap(campaignSection =>
             productTypeGroupsInDisplayOrder(campaignSection.groups)
           );
         }
-        if (section.key === "proposal") return proposalProductGroupsInDisplayOrder(section.groups);
+        if (section.kind === "proposal") return proposalProductGroupsInDisplayOrder(section.groups);
         return productTypeGroupsInDisplayOrder(section.groups);
       });
     }
@@ -3249,14 +3304,14 @@
     }
 
     function workflowSectionHtml(section, activeGroupKey, showProcessingStatus) {
-      const shouldGroupCampaigns = section.key === "campaign" && ["已确认", "已导入"].includes(statusFilter);
+      const shouldGroupCampaigns = section.kind === "campaign" && ["已确认", "已导入"].includes(statusFilter);
       if (shouldGroupCampaigns) {
         return campaignWorkflowHtml(section.groups, section, activeGroupKey, showProcessingStatus);
       }
-      if (section.key === "proposal") {
+      if (section.kind === "proposal") {
         return proposalProductTypeSectionsHtml(section.groups, section.key, activeGroupKey, showProcessingStatus);
       }
-      if (section.key === "maintenance") {
+      if (section.kind === "maintenance") {
         return productTypeSectionsHtml(section.groups, section.key, activeGroupKey, showProcessingStatus, section.key, { collapsible: true });
       }
       return productTypeSectionsHtml(section.groups, section.key, activeGroupKey, showProcessingStatus);
@@ -3272,22 +3327,23 @@
         const label = campaignSection.campaign
           ? `${campaignSection.year}｜${campaignSection.campaign}`
           : "待补充档期";
+        const scopedKey = `${section.key}:${campaignSection.key}`;
         const isExpanded = productGroupExpanded(
-          campaignSection.key,
-          activeCampaignKey,
+          scopedKey,
+          activeCampaignKey ? `${section.key}:${activeCampaignKey}` : "",
           expandedCampaignGroupKeys,
           collapsedCampaignGroupKeys
         );
         return `
-          <div class="campaign-group-section" data-campaign-group-section="${escapeAttr(campaignSection.key)}">
-            <button class="campaign-group-bar" data-campaign-group data-campaign-group-toggle="${escapeAttr(campaignSection.key)}" type="button" aria-expanded="${isExpanded}">
+          <div class="campaign-group-section" data-campaign-group-section="${escapeAttr(scopedKey)}">
+            <button class="campaign-group-bar" data-campaign-group data-campaign-group-toggle="${escapeAttr(scopedKey)}" type="button" aria-expanded="${isExpanded}">
               <strong>${escapeHtml(label)}</strong>
               <span class="campaign-group-meta">
                 <span>${campaignSection.groups.length} 个产品 · ${recordCount} 条记录</span>
                 <span class="campaign-group-caret" aria-hidden="true">▼</span>
               </span>
             </button>
-            <div class="campaign-group-body" data-campaign-group-body="${escapeAttr(campaignSection.key)}" ${isExpanded ? "" : "hidden"}>
+            <div class="campaign-group-body" data-campaign-group-body="${escapeAttr(scopedKey)}" ${isExpanded ? "" : "hidden"}>
               ${productTypeSectionsHtml(campaignSection.groups, section.key, activeGroupKey, showProcessingStatus, `${section.key}:${campaignSection.key}`)}
             </div>
           </div>
@@ -3349,7 +3405,7 @@
         const recordCount = section.groups.reduce((total, group) => total + group.records.length, 0);
         const isCollapsed = collapsedTestCategoryKeys.has(section.key);
         const sectionBar = section.label ? `
-          <button class="test-category-bar ${section.key}-section" data-test-category-section="${escapeAttr(section.key)}" data-test-category-toggle="${escapeAttr(section.key)}" type="button" aria-expanded="${!isCollapsed}">
+          <button class="test-category-bar ${section.kind || section.key}-section" data-test-category-section="${escapeAttr(section.key)}" data-test-category-toggle="${escapeAttr(section.key)}" type="button" aria-expanded="${!isCollapsed}">
             <span class="test-category-title">${escapeHtml(section.label)}</span>
             <span class="test-category-meta">
               ${section.note ? `<span class="test-category-note">${escapeHtml(section.note)}</span>` : ""}
@@ -3424,6 +3480,7 @@
       const sameSupplier = allGroups.filter(group =>
         group.key !== source.key &&
         normalizeGroupingText(group.supplier) === normalizeGroupingText(source.supplier) &&
+        testCategoryBrand(group.latest?.test_category) === testCategoryBrand(source.latest?.test_category) &&
         (!query || normalizeGroupingText(`${group.name} ${group.records.map(row => row.product_name).join(" ")}`).includes(query))
       );
       const otherGroups = sameSupplier.filter(group => !suggestedKeys.has(group.key));
@@ -3631,7 +3688,7 @@
             ${fieldBlock("宽度（mm）", fieldInput("width_mm", row.width_mm, "填写数字"))}
             ${fieldBlock("高度（mm）", fieldInput("height_mm", row.height_mm, "填写数字"))}
             ${fieldBlock("类型", fieldSelect("product_type", ["", "烘焙", "蛋糕", "三明治", "预包装食品"], row.product_type))}
-            ${fieldBlock("测试类别", fieldSelect("test_category", ["", "档期测试", "新品提案", "老品维护"], row.test_category))}
+            ${fieldBlock("测试类别", fieldSelect("test_category", testCategoryOptions(row.test_category), row.test_category))}
             ${fieldBlock("送样时间", fieldInput("sample_date", row.sample_date, "YYYY-MM-DD", "date"))}
             ${fieldBlock("本版调整点", fieldTextarea("version_change", row.version_change, "本版调整点", 3), "span-2")}
             ${fieldBlock("产品结构", fieldTextarea("ingredients_structure", row.ingredients_structure, "产品结构", 3), "span-2")}
@@ -3700,6 +3757,10 @@
           <div class="edit-grid">
             ${fieldBlock("报价（元，含税含运）", fieldInput("quote_rmb", row.quote_rmb, "线下确认后填写"))}
             ${campaignPickerField(row)}
+            <label class="field-label" data-pm-maintenance ${testCategoryKind(row.test_category) === "maintenance" || row.maintenance_purpose ? "" : "hidden"}>
+              <span>老品维护 · 测试目的</span>
+              ${fieldSelect("maintenance_purpose", MAINTENANCE_PURPOSES, row.maintenance_purpose)}
+            </label>
             ${fieldBlock("测试场景 / 反馈来源", fieldSelect("tasting_scene", ["", "前期打磨测试", "众测后优化", "中试后优化", "上市后优化"], row.tasting_scene))}
             ${fieldBlock("本轮结论", fieldSelect("round_conclusion", ["", "继续调整", "暂停", "通过且储备", "通过且进入众测", "通过且进入中试", "通过且进入大生产"], row.round_conclusion))}
             <div class="version-stage-preview span-2" data-version-stage-preview>${versionStage ? `自动识别版本阶段：${escapeHtml(versionStage)}` : "尚未识别版本阶段。进入众测、中试或大生产后自动标记。"}</div>
@@ -3733,6 +3794,7 @@
           ${kv("测试类别", row.test_category)}
           ${kv("档期年份", effectiveCampaignYear(row))}
           ${kv("档期名称", row.campaign)}
+          ${row.maintenance_purpose ? kv("老品维护 · 测试目的", row.maintenance_purpose) : ""}
           ${kv("版本", row.version_label)}
           ${versionStage ? kv("版本阶段", versionStage) : ""}
           ${kv("产品规格（g）", row.finished_spec)}
@@ -3894,6 +3956,7 @@
         test_category: detailValue("test_category", row.test_category || "").trim(),
         campaign_year: campaignYear,
         campaign,
+        maintenance_purpose: detailValue("maintenance_purpose", row.maintenance_purpose || "").trim(),
         version_change: detailValue("version_change", row.version_change || "").trim(),
         finished_spec: detailValue("finished_spec", row.finished_spec || "").trim(),
         length_mm: detailValue("length_mm", row.length_mm || "").trim(),
@@ -4151,6 +4214,7 @@
           row.product_type ? `产品类型：${row.product_type}` : "",
           row.test_category ? `测试类别：${row.test_category}` : "",
           row.campaign ? `档期：${effectiveCampaignYear(row)} · ${row.campaign}` : "",
+          row.maintenance_purpose ? `老品维护测试目的：${row.maintenance_purpose}` : "",
           row.length_mm || row.width_mm || row.height_mm ? `尺寸（mm）：长 ${row.length_mm || "-"} / 宽 ${row.width_mm || "-"} / 高 ${row.height_mm || "-"}` : "",
           row.version_change ? `本版调整点：${row.version_change}` : "",
           row.core_ingredients_selling_points ? `核心原料及卖点：${row.core_ingredients_selling_points}` : "",
@@ -4222,6 +4286,7 @@
         "测试类别",
         "档期年份",
         "档期名称",
+        "老品维护测试目的",
         "本版调整点",
         "产品规格（g）",
         "长度（mm）",
@@ -4250,6 +4315,7 @@
         row.test_category,
         effectiveCampaignYear(row),
         row.campaign,
+        row.maintenance_purpose,
         row.version_change,
         row.finished_spec,
         row.length_mm,
@@ -4475,6 +4541,7 @@
         if (campaignOption) {
           const input = campaignPickerNodes().input;
           if (input) input.value = campaignOption.dataset.campaignOption || "";
+          updatePmIntentFields();
           closeCampaignOptions();
           return;
         }
@@ -4507,9 +4574,15 @@
         }
         if (event.target.closest("[data-toggle-supplier-edit]")) {
           if (!supplierEditOpen) {
+            const draftPayload = activePayload();
             supplierEditOpen = true;
             resetAdminImageDraft(activeRecord());
             renderDetail();
+            detailPane.querySelectorAll("[data-field]").forEach(input => {
+              if (Object.hasOwn(draftPayload, input.dataset.field)) input.value = draftPayload[input.dataset.field] ?? "";
+            });
+            updatePmIntentFields();
+            updateVersionStagePreview();
           } else {
             await runWithUnsavedGuard(async () => {
               supplierEditOpen = false;
@@ -4546,10 +4619,14 @@
       }
     });
     appPanel.addEventListener("input", event => {
-      if (event.target?.matches('[data-field="campaign"]')) refreshCampaignOptions({ open: true, filter: true });
+      if (event.target?.matches('[data-field="campaign"]')) {
+        refreshCampaignOptions({ open: true, filter: true });
+        updatePmIntentFields();
+      }
     });
     appPanel.addEventListener("change", event => {
       try {
+        if (["test_category", "maintenance_purpose", "campaign_year"].includes(event.target?.dataset?.field)) updatePmIntentFields();
         if (event.target?.matches("[data-campaign-year]")) {
           refreshCampaignOptions({ open: true });
           return;
