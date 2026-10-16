@@ -3911,9 +3911,20 @@
 
     async function boot({ unlock = false } = {}) {
       if (cloudbaseReady) {
-        profile = { display_name: "Louise", role: "owner" };
-        showAppShell();
-        await loadRecords();
+        loginForm.elements.email.required = false;
+        if (!cloudbaseAdminCode) { showLoginForm(); return; }
+        try {
+          const data = await cloudbaseRequest("adminLogin");
+          profile = data.profile;
+          showAppShell();
+          await loadRecords();
+        } catch (error) {
+          cloudbaseAdminCode = "";
+          sessionStorage.removeItem("categorylabCloudbaseAdminCode");
+          profile = null;
+          showLoginForm();
+          showMessage(error.message || "请重新登录。", "error");
+        }
         return;
       }
       if (!supabaseReady) {

@@ -532,7 +532,13 @@ function categoryLabAccessDigestFromEvent(event = {}, body = {}) {
   );
 }
 
-function assertAdmin() {}
+function assertAdmin(event, body, env = process.env) {
+  const expected = String(env.CATEGORYLAB_ADMIN_CODE || "");
+  const provided = adminCodeFromEvent(event, body);
+  if (!expected || Buffer.byteLength(provided) !== Buffer.byteLength(expected) || !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) {
+    throw new Error("管理员授权失败，请重新登录。");
+  }
+}
 
 function launchReminderConfig(env = process.env) {
   const smtpUser = text(env.MAIL_SMTP_USER);
@@ -808,14 +814,12 @@ async function completeSupplierFeedback(collection, body) {
 }
 
 async function adminList(collection, event, body) {
-  assertAdmin(event, body);
   const result = await collection.orderBy("created_at", "desc").limit(1000).get();
   const records = await Promise.all((result.data || []).map(record => hydrateRecordImages(getApp(), publicRecord(record))));
   return { records };
 }
 
 async function adminUpdate(collection, event, body) {
-  assertAdmin(event, body);
   const id = text(body.id);
   if (!id) throw new Error("缺少记录 ID。");
   const current = await collection.doc(id).get();
@@ -861,7 +865,6 @@ async function adminUpdate(collection, event, body) {
 }
 
 async function adminSetProductGroup(collection, event, body) {
-  assertAdmin(event, body);
   const recordIds = [...new Set((Array.isArray(body.recordIds) ? body.recordIds : []).map(text).filter(Boolean))];
   if (!recordIds.length || recordIds.length > 100) throw new Error("产品归组记录数量必须在 1 到 100 条之间。");
   const snapshots = await Promise.all(recordIds.map(id => collection.doc(id).get()));
@@ -882,7 +885,6 @@ async function adminSetProductGroup(collection, event, body) {
 }
 
 async function adminDelete(collection, event, body) {
-  assertAdmin(event, body);
   const id = text(body.id);
   if (!id) throw new Error("缺少记录 ID。");
   await collection.doc(id).remove();
@@ -915,6 +917,13 @@ async function handleEvent(event = {}, dependencies = {}) {
 
     const body = parseEventBody(event);
     const action = text(body.action);
+    if (action.startsWith("admin") && action !== "adminList") assertAdmin(event, body, env);
+    if (["readPendingQuote", "savePendingQuote"].includes(action)) {
+      const worker = require("./pending-quote");
+      worker.assertWorker(event, env);
+      const data = await worker[action === "readPendingQuote" ? "read" : "save"](app.database(), body);
+      return jsonResponse(200, { ok: true, data });
+    }
     const directNotificationTest = action === "sendLatestNotificationTest";
     const reminderHttpAction = REMINDER_HTTP_ACTIONS.has(action);
     const reminderDirectAction = REMINDER_DIRECT_ACTIONS.has(action);
@@ -940,7 +949,6 @@ async function handleEvent(event = {}, dependencies = {}) {
     else if (action === "sendLaunchReminderTest") data = await sendLaunchReminderTest(app, event, body, env, { ...dependencies, now });
     else if (action === "submitSupplierFeedback") data = await submitSupplierFeedback(app, collection, body);
     else if (action === "adminLogin") {
-      assertAdmin(event, body);
       data = { profile: { display_name: "Louise", role: "owner" } };
     } else if (action === "adminList") data = await adminList(collection, event, body);
     else if (action === "adminUpdate") data = await adminUpdate(collection, event, body);
