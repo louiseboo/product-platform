@@ -22,10 +22,11 @@ async function save(db,body){
  if(!/^[a-f0-9]{64}$/.test(body.beforeHash)||!/^pm-[a-f0-9]{40}$/.test(body.taskId)||!(body.oldQuote===null||typeof body.oldQuote==='number'&&Number.isFinite(body.oldQuote)&&body.oldQuote>=0)||typeof body.newQuote!=='number'||!Number.isFinite(body.newQuote)||body.newQuote<0||body.newQuote>1000000)reject();
  keys(body.source,['mailbox','messageId','threadId']);for(const k of ['mailbox','messageId','threadId'])if(typeof body.source[k]!=='string'||!body.source[k].trim()||body.source[k].length>512)reject();
  const requestHash=hash(body);
+ // CloudBase transaction document reads return data: object|null, unlike ordinary array reads.
  return db.runTransaction(async tx=>{
-  const receiptDoc=tx.collection(RECEIPTS).doc(body.taskId),prior=(await receiptDoc.get()).data?.[0];
+  const receiptDoc=tx.collection(RECEIPTS).doc(body.taskId),prior=(await receiptDoc.get()).data;
   if(prior){if(prior.requestHash!==requestHash)reject();return prior.receipt;}
-  const doc=tx.collection(RECORDS).doc(i.id),record=(await doc.get()).data?.[0],before=snapshot(record,i);
+  const doc=tx.collection(RECORDS).doc(i.id),record=(await doc.get()).data,before=snapshot(record,i);
   if(hash(record)!==body.beforeHash||before.quote!==body.oldQuote)reject();
   const at=new Date().toISOString(),patch={quote_rmb:body.newQuote,updated_at:at};
   // Never write status: transaction detects concurrent confirmation or edits.
