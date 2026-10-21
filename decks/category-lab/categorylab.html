@@ -5470,6 +5470,37 @@
         ]
       },
       {
+        id: "recipe-double-american",
+        name: "双层美式汉堡",
+        version: "V1",
+        price: 58,
+        lines: [
+          { id: "double-line-001", type: "normal", materialCode: "M001", qty: 60, loss: 0 },
+          { id: "double-line-016", type: "normal", materialCode: "M016", qty: 10, loss: 0.1 },
+          { id: "double-line-010", type: "normal", materialCode: "M010", qty: 10, loss: 0.1 },
+          { id: "double-line-011", type: "normal", materialCode: "M011", qty: 30, loss: 0.35 },
+          { id: "double-line-008", type: "normal", materialCode: "M008", qty: 200, loss: 0.05, note: "2个肉饼，按100g/个计" },
+          { id: "double-line-005", type: "normal", materialCode: "M005", qty: 40, loss: 0.05, note: "2片芝士，按20g/片计" },
+          { id: "double-line-012", type: "normal", materialCode: "M012", qty: 10, loss: 0.1 }
+        ],
+        components: [
+          {
+            id: "double-comp-house",
+            code: "C001",
+            name: "皮爷 House 经典拼配酱",
+            qty: 15,
+            loss: 0.1,
+            children: [
+              { id: "double-comp-house-020", materialCode: "M020", ratio: 0.738, loss: 0.1 },
+              { id: "double-comp-house-021", materialCode: "M021", ratio: 0.123, loss: 0.1 },
+              { id: "double-comp-house-022", materialCode: "M022", ratio: 0.123, loss: 0.1 },
+              { id: "double-comp-house-023", materialCode: "M023", ratio: 0.012, loss: 0.1 },
+              { id: "double-comp-house-024", materialCode: "M024", ratio: 0.004, loss: 0.05 }
+            ]
+          }
+        ]
+      },
+      {
         id: "recipe-black-truffle",
         name: "黑松露菌菇汉堡",
         version: "V1",
