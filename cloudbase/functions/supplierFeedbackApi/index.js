@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const http = require("http");
+const agentmailBridge = require("./agentmail-bridge");
 const {
   attachmentFilename,
   buildNotificationMessage,
@@ -891,6 +892,15 @@ async function adminDelete(collection, event, body) {
   return { ok: true };
 }
 
+async function publishInboxState(app, kind, records, env, dependencies) {
+  if (env.CATEGORYLAB_AGENTMAIL_ENABLED !== "1") return { status: "disabled" };
+  try {
+    return await agentmailBridge.publish(app.database(), agentmailBridge.makeEvent(kind, records), {
+      env, ...(dependencies.sendAgentMail ? { send: dependencies.sendAgentMail } : {})
+    });
+  } catch (_) { return { status: "not_submitted", reason: "event_preparation_failed" }; }
+}
+
 async function handleEvent(event = {}, dependencies = {}) {
   if (event.httpMethod === "OPTIONS" || event.requestContext?.http?.method === "OPTIONS") {
     return jsonResponse(204, {});
@@ -921,7 +931,14 @@ async function handleEvent(event = {}, dependencies = {}) {
     if (["readPendingQuote", "savePendingQuote"].includes(action)) {
       const worker = require("./pending-quote");
       worker.assertWorker(event, env);
+      const linked = action === "savePendingQuote" && env.CATEGORYLAB_AGENTMAIL_ENABLED === "1";
+      const quotes = linked ? app.database().collection(COLLECTION) : null;
+      const before = linked && typeof body.identity?.id === "string" ? (await quotes.doc(body.identity.id).get()).data?.[0] : null;
       const data = await worker[action === "readPendingQuote" ? "read" : "save"](app.database(), body);
+      if (linked && before) {
+        const after = (await quotes.doc(body.identity.id).get()).data?.[0];
+        if (after && agentmailBridge.changed(before, after)) data.agentmail = await publishInboxState(app, "updated", [after], env, dependencies);
+      }
       return jsonResponse(200, { ok: true, data });
     }
     const directNotificationTest = action === "sendLatestNotificationTest";
@@ -937,9 +954,18 @@ async function handleEvent(event = {}, dependencies = {}) {
     if (action === "runLaunchReminderScanFromWorker") assertReminderWorker(event, body, env);
 
     const collection = app.database().collection(COLLECTION);
+    const watched = env.CATEGORYLAB_AGENTMAIL_ENABLED === "1" && ["adminUpdate", "adminSetProductGroup", "adminDelete"].includes(action);
+    const beforeIds = watched ? (action === "adminSetProductGroup" ? [...new Set(Array.isArray(body.recordIds) ? body.recordIds : [])] : [body.id]) : [];
+    const beforeRecords = watched ? (await Promise.all(beforeIds.filter(id => typeof id === "string" && id.length <= 128).slice(0,100).map(id => collection.doc(id).get()))).flatMap(result => result.data || []) : [];
     let data;
 
     if (action === "ping") data = { ok: true };
+    else if (action === "adminSyncAgentMail") {
+      const records = (await collection.orderBy("created_at", "desc").limit(1000).get()).data || [];
+      if (records.length >= 1000) throw new Error("全量同步超过当前批次上限，请先分页核对，未发送。");
+      data = { recordCount: records.length, agentmail: await publishInboxState(app, "snapshot", records, env, dependencies) };
+    }
+    else if (action === "adminAgentMailReceipt") data = { receipt: await agentmailBridge.receipt(app.database(), body.eventId) };
     else if (directNotificationTest) data = await sendLatestNotificationTest(app, collection, event, body);
     else if (action === "enableLaunchReminders") data = await enableLaunchReminders(app, event, body, env, now);
     else if (action === "syncLaunchReminders") data = await syncLaunchReminders(app, event, body, now);
@@ -954,6 +980,19 @@ async function handleEvent(event = {}, dependencies = {}) {
     else if (action === "adminUpdate") data = await adminUpdate(collection, event, body);
     else if (action === "adminSetProductGroup") data = await adminSetProductGroup(collection, event, body);
     else if (action === "adminDelete") data = await adminDelete(collection, event, body);
+
+    if (env.CATEGORYLAB_AGENTMAIL_ENABLED === "1") {
+      if (action === "submitSupplierFeedback") data.agentmail = await publishInboxState(app, "created", [data.record], env, dependencies);
+      else if (action === "adminDelete" && beforeRecords.length) data.agentmail = await publishInboxState(app, "deleted", beforeRecords, env, dependencies);
+      else if (watched) {
+        const after = data.records || (data.record ? [data.record] : []);
+        const changed = after.filter(record => {
+          const before = beforeRecords.find(x => (x.id || x._id) === (record.id || record._id));
+          return before && agentmailBridge.changed(before, record);
+        });
+        if (changed.length) data.agentmail = await publishInboxState(app, "updated", changed, env, dependencies);
+      }
+    }
 
     return jsonResponse(200, { ok: true, data });
   } catch (error) {
