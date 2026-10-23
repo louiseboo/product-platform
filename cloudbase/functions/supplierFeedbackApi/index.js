@@ -134,6 +134,7 @@ function normalizeRecordPayload(payload = {}) {
     campaign_year: nullableText(payload.campaign_year),
     campaign: nullableText(payload.campaign),
     maintenance_purpose: nullableText(payload.maintenance_purpose),
+    project_name: nullableText(payload.project_name),
     version_change: nullableText(payload.version_change),
     finished_spec: nullableText(payload.finished_spec),
     length_mm: nullableText(payload.length_mm),
@@ -163,6 +164,7 @@ function sanitizePublicSubmissionPayload(payload = {}) {
   delete normalized.campaign_year;
   delete normalized.campaign;
   delete normalized.maintenance_purpose;
+  delete normalized.project_name;
   return normalized;
 }
 
@@ -236,6 +238,7 @@ function publicSubmissionRecord(record = {}) {
     campaign_year,
     campaign,
     maintenance_purpose,
+    project_name,
     edit_token_hash,
     notification_status,
     notification_sent_at,

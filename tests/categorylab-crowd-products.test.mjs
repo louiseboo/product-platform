@@ -27,7 +27,7 @@ test.afterEach(async () => { await page.close(); });
 test('adds independent overview without altering original status tabs', async () => {
   assert.equal(await page.locator('#crowdProductsTab').count(), 1);
   await page.locator('#crowdProductsTab').click();
-  assert.equal(await page.locator('[data-status-filter]').count(), 4);
+  assert.equal(await page.locator('[data-status-filter]').count(), 3);
   assert.equal(await page.locator('.workspace').isVisible(), false);
   assert.equal(await page.locator('#crowdProductsPane').isVisible(), true);
 });

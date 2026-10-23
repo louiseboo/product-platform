@@ -70,13 +70,19 @@ test.beforeEach(async () => {
   records = structuredClone(seedRecords);
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.route("https://cdn.jsdelivr.net/**", route => route.abort());
+  page.setDefaultTimeout(5000);
   await page.addInitScript(() => {
+    sessionStorage.setItem("categorylabCloudbaseAdminCode", "test-only");
     localStorage.setItem("burger-bom-tool-v1", JSON.stringify({
       devRecords: [{ supplierSubmissionId: "confirmed-0" }]
     }));
   });
   await page.route("**/api/supplier-feedback", async route => {
     const body = route.request().postDataJSON();
+    if (body.action === "adminLogin") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: { profile: { role: "owner" } } }) });
+      return;
+    }
     if (body.action === "adminList") {
       await route.fulfill({
         status: 200,
@@ -185,11 +191,7 @@ test("processed and all views continue to use product grouping", async () => {
   assert.equal(await page.locator("[data-submission-batch-key]").count(), 0);
   assert.equal(await page.locator("[data-product-group-key]").count(), 3);
 
-  await page.locator('[data-status-filter="已导入"]').click();
-  await page.locator('[data-status-filter="已导入"].active').waitFor();
-  assert.equal(await page.locator("[data-pending-supplier-key]").count(), 0);
-  assert.equal(await page.locator("[data-submission-batch-key]").count(), 0);
-  assert.equal(await page.locator("[data-product-group-key]").count(), 1);
+  assert.equal(await page.locator('[data-status-filter="已导入"]').count(), 0);
 
   await page.locator('[data-status-filter=""]').click();
   assert.equal(await page.locator("[data-pending-supplier-key]").count(), 0);

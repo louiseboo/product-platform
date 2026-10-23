@@ -1201,14 +1201,6 @@
       font-size: 12.5px;
       font-weight: 500;
     }
-    .import-state {
-      color: var(--faint);
-      font-size: 12px;
-      font-weight: 700;
-      line-height: 1.5;
-    }
-    .import-state.ok { color: var(--confirmed); }
-    .import-state.warn { color: var(--danger); }
     .grouping-modal {
       position: fixed;
       inset: 0;
@@ -1445,6 +1437,8 @@
     .crowd-total { color: var(--muted); font-size: 13px; white-space: nowrap; padding-top: 8px; }
     .brand-peets { --brand-color: #4b3527; }
     .brand-ora { --brand-color: #245d62; }
+    .test-category-bar.project-section { border-color: #5b8587; background: #e1ece9; color: #244d50; }
+    .project-group-bar { border-left-color: #5b8587; background: #f1f7f5; color: #244d50; }
     .brand-legacy { --brand-color: #62615a; }
     .inbox-brand + .inbox-brand { margin-top: 18px; border-top: 1px solid var(--line); }
     .inbox-brand-bar, .crowd-brand-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--brand-color); color: #fff; }
@@ -1503,7 +1497,7 @@
       .crowd-campaign > summary { padding: 14px; }
       .crowd-campaign > summary span { display: block; margin: 4px 0 0 16px; }
     }
-    [data-pm-campaign][hidden], [data-pm-maintenance][hidden], [data-campaign-legacy-note][hidden] { display: none; }
+    [data-pm-campaign][hidden], [data-pm-project][hidden], [data-pm-maintenance][hidden], [data-campaign-legacy-note][hidden] { display: none; }
   </style>
   <style id="inbox-ui-refresh">
     :root {
@@ -1961,7 +1955,6 @@
       <div class="filter-tabs">
         <button class="filter-tab active" data-status-filter="待处理" type="button">待处理 <span id="pendingCount">0</span></button>
         <button class="filter-tab" data-status-filter="已确认" type="button">已确认 <span id="confirmedCount">0</span></button>
-        <button class="filter-tab" data-status-filter="已导入" type="button">已导入 Category Lab <span id="importedCount">0</span></button>
         <button class="filter-tab" data-status-filter="" type="button">全部 <span id="allCount">0</span></button>
         <button class="filter-tab" id="crowdProductsTab" type="button" aria-controls="crowdProductsPane" aria-pressed="false">众测产品信息</button>
       </div>
@@ -2027,7 +2020,6 @@
   <script src="./cloudbase-config.js"></script>
   <script>
     const TABLE = "supplier_feedback_records";
-    const CATEGORYLAB_STORAGE_KEY = "burger-bom-tool-v1";
     const CAMPAIGN_OPTIONS_BY_YEAR = {
       "2026": [
         "01月｜CNY",
@@ -2070,18 +2062,19 @@
       { key: "special", label: "特殊测试" }
     ];
     const TEST_CATEGORY_DEFINITIONS = [
-      ...[{ key: "peets", label: "Peet's" }, { key: "ora", label: "Ora" }].flatMap(brand =>
-        TEST_CATEGORY_KINDS.map(kind => ({ key: `${brand.key}-${kind.key}`, kind: kind.key, label: `${brand.label}${kind.label}` }))
-      ),
+      ...TEST_CATEGORY_KINDS.map(kind => ({ key: `peets-${kind.key}`, kind: kind.key, label: `Peet's${kind.label}` })),
+      { key: "ora-project", kind: "project", label: "Ora新品测试" },
+      { key: "ora-maintenance", kind: "maintenance", label: "Ora老品维护" },
+      { key: "ora-special", kind: "special", label: "Ora特殊测试" },
       ...TEST_CATEGORY_KINDS.map(kind => ({ key: kind.key, kind: kind.key, label: `${kind.label}（历史未标品牌）` })),
       { key: "uncategorized", kind: "uncategorized", label: "未分类" }
     ];
-    const TEST_CATEGORY_OPTIONS = TEST_CATEGORY_DEFINITIONS.slice(0, 8).map(item => item.label);
+    const TEST_CATEGORY_OPTIONS = TEST_CATEGORY_DEFINITIONS.filter(item => /^(peets|ora)-/.test(item.key)).map(item => item.label);
     const MAINTENANCE_PURPOSES = ["", "产品改进", "产品复制"];
     const CAMPAIGN_YEARS = ["2026", "2027"];
     const EDITABLE_RECORD_FIELDS = [
       "product_name", "supplier_name", "version_label", "sample_date", "product_type", "test_category",
-      "campaign_year", "campaign", "maintenance_purpose", "version_change", "finished_spec", "length_mm", "width_mm", "height_mm",
+      "campaign_year", "campaign", "project_name", "maintenance_purpose", "version_change", "finished_spec", "length_mm", "width_mm", "height_mm",
       "ingredients_structure", "quote_rmb", "core_ingredients_selling_points", "tasting_scene", "tasting_feedback",
       "round_conclusion", "next_step_direction", "key_blocker"
     ];
@@ -2121,7 +2114,6 @@
     const countEls = {
       pending: document.querySelector("#pendingCount"),
       confirmed: document.querySelector("#confirmedCount"),
-      imported: document.querySelector("#importedCount"),
       all: document.querySelector("#allCount")
     };
 
@@ -2320,7 +2312,7 @@
 
     function fieldSelect(field, options, selected) {
       const html = field === "test_category"
-        ? options.map(option => `<option value="${escapeAttr(option)}" ${option === (selected || "") ? "selected" : ""}>${escapeHtml(testCategoryLabel(option) || "请选择")}</option>`).join("")
+        ? options.map(option => `<option value="${escapeAttr(option)}" ${option === testCategoryLabel(selected) ? "selected" : ""}>${escapeHtml(testCategoryLabel(option) || "请选择")}</option>`).join("")
         : optionHtml(options, selected || "");
       return `<select data-field="${escapeAttr(field)}" ${roleCanEdit() ? "" : "disabled"}>${html}</select>`;
     }
@@ -2335,16 +2327,6 @@
 
     function editableKv(label, field, value, placeholder = "", type = "text") {
       return `<div class="kv-item"><label>${escapeHtml(label)}</label>${fieldInput(field, value, placeholder, type)}</div>`;
-    }
-
-    function categoryLabData() {
-      const raw = localStorage.getItem(CATEGORYLAB_STORAGE_KEY);
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw);
-      } catch (error) {
-        return null;
-      }
     }
 
     function normalizeCampaignYear(value) {
@@ -2386,7 +2368,29 @@
     }
 
     function testCategoryLabel(value) {
-      return value === "Ora档期测试" ? "Ora月度测试" : value;
+      const category = String(value || "").trim();
+      return ["Ora档期测试", "Ora月度测试", "Ora新品提案", "Ora新品测试"].includes(category) ? "Ora新品测试" : category;
+    }
+
+    function isOraNewTest(value) {
+      return testCategoryLabel(value) === "Ora新品测试";
+    }
+
+    function projectNameForRecord(row, allRecords = records) {
+      const key = effectiveProductGroupKey(row, allRecords);
+      const latestAssignment = allRecords.filter(candidate => isOraNewTest(candidate.test_category) && effectiveProductGroupKey(candidate, allRecords) === key && Object.hasOwn(candidate, "project_name"))
+        .sort((a, b) => groupingUpdateTime(b) - groupingUpdateTime(a))[0];
+      return String(latestAssignment?.project_name || "").trim();
+    }
+
+    function projectPickerField(row) {
+      const project = projectNameForRecord(row);
+      const names = [...new Set(records.filter(item => isOraNewTest(item.test_category)).map(item => String(item.project_name || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+      return `<label class="field-label" data-pm-project ${isOraNewTest(row.test_category) ? "" : "hidden"}>
+        <span>项目名称</span>
+        <input data-field="project_name" list="oraProjectNames" value="${escapeAttr(project)}" placeholder="由产品经理填写或选择项目名称" ${roleCanEdit() ? "" : "disabled"}>
+        <datalist id="oraProjectNames">${names.map(name => `<option value="${escapeAttr(name)}"></option>`).join("")}</datalist>
+      </label>`;
     }
 
     function campaignOptions(year) {
@@ -2408,7 +2412,7 @@
       const campaign = recordCampaignName(row);
       const isOra = testCategoryBrand(row.test_category) === "ora";
       if (isOra) return `
-        <div class="field-label" data-pm-campaign data-period-brand="ora" ${testCategoryKind(row.test_category) === "campaign" || row.campaign ? "" : "hidden"}>
+        <div class="field-label" data-pm-campaign data-period-brand="ora" ${!isOraNewTest(row.test_category) && (testCategoryKind(row.test_category) === "campaign" || row.campaign) ? "" : "hidden"}>
           <span>年份 / 月份</span>
           <div class="campaign-picker">
             <select data-field="campaign_year" data-campaign-year aria-label="年份" ${roleCanEdit() ? "" : "disabled"}>
@@ -2422,7 +2426,7 @@
         </div>
       `;
       return `
-        <div class="field-label" data-period-brand="peets" data-pm-campaign ${testCategoryKind(row.test_category) === "campaign" || row.campaign ? "" : "hidden"}>
+        <div class="field-label" data-period-brand="peets" data-pm-campaign ${!isOraNewTest(row.test_category) && (testCategoryKind(row.test_category) === "campaign" || row.campaign) ? "" : "hidden"}>
           <span>档期年份 / 名称</span>
           <div class="campaign-picker">
             <select data-field="campaign_year" data-campaign-year ${roleCanEdit() ? "" : "disabled"}>
@@ -2466,12 +2470,6 @@
 
     function closeCampaignOptions() {
       setCampaignOptionsOpen(false);
-    }
-
-    function isImportedToCategoryLab(row) {
-      const data = categoryLabData();
-      const devRecords = Array.isArray(data?.devRecords) ? data.devRecords : [];
-      return devRecords.some(item => item.supplierSubmissionId === row.id || item.id === `supplier-${row.id}`);
     }
 
     function normalizeGroupingText(value) {
@@ -2684,7 +2682,7 @@
     }
 
     function defaultSortModeForStatus(filter = statusFilter) {
-      return ["已确认", "已导入"].includes(filter) ? "workflow" : "recent";
+      return filter === "已确认" ? "workflow" : "recent";
     }
 
     function compareGroupIdentity(a, b) {
@@ -2723,9 +2721,7 @@
     }
 
     function recordMatchesStatusFilter(row, filter = statusFilter) {
-      return filter === "已导入"
-        ? isImportedToCategoryLab(row)
-        : (!filter || row.status === filter);
+      return !filter || row.status === filter;
     }
 
     function visibleRecords() {
@@ -2737,7 +2733,8 @@
           row.version_label,
           deriveVersionStage(row, records),
           row.product_type,
-          row.test_category,
+          testCategoryLabel(row.test_category),
+          projectNameForRecord(row),
           row.maintenance_purpose,
           row.campaign_year,
           row.campaign,
@@ -2861,11 +2858,13 @@
     }
 
     function testCategoryKind(value) {
-      const category = String(value || "").trim();
+      const category = testCategoryLabel(value);
+      if (isOraNewTest(category)) return "project";
       return TEST_CATEGORY_KINDS.find(item => category === item.label || category === `Peet's${item.label}` || category === `Ora${item.label}`)?.key || "uncategorized";
     }
 
     function testCategoryOptions(current) {
+      current = testCategoryLabel(current);
       return ["", ...TEST_CATEGORY_OPTIONS, ...(current && !TEST_CATEGORY_OPTIONS.includes(current) ? [current] : [])];
     }
 
@@ -2881,7 +2880,9 @@
         campaign = appPanel.querySelector("[data-pm-campaign]");
       }
       const purpose = appPanel.querySelector("[data-pm-maintenance]");
-      if (campaign) campaign.hidden = kind !== "campaign" && !detailValue("campaign", row.campaign || "");
+      if (campaign) campaign.hidden = kind === "project" || (kind !== "campaign" && !detailValue("campaign", row.campaign || ""));
+      const project = appPanel.querySelector("[data-pm-project]");
+      if (project) project.hidden = kind !== "project";
       if (purpose) purpose.hidden = kind !== "maintenance" && !detailValue("maintenance_purpose", row.maintenance_purpose || "");
       const year = detailValue("campaign_year", effectiveCampaignYear(row));
       const name = detailValue("campaign", row.campaign || "").trim();
@@ -2890,8 +2891,8 @@
     }
 
     function testCategorySectionKey(group) {
-      const category = String(latestGroupValue(group, "test_category") || "").trim();
-      const branded = TEST_CATEGORY_DEFINITIONS.slice(0, 8).find(item => item.label === category);
+      const category = testCategoryLabel(latestGroupValue(group, "test_category"));
+      const branded = TEST_CATEGORY_DEFINITIONS.find(item => item.label === category);
       return branded?.key || testCategoryKind(category);
     }
 
@@ -2947,7 +2948,7 @@
             ...definition,
             brand: definition.key.startsWith("peets-") ? "peets" : definition.key.startsWith("ora-") ? "ora" : "legacy",
             label: testCategoryLabel(definition.label),
-            note: definition.kind === "campaign" && ["已确认", "已导入"].includes(filter)
+            note: definition.kind === "project" ? "项目 → 品类 → 产品 → 版本" : definition.kind === "campaign" && filter === "已确认"
               ? definition.key === "ora-campaign" ? "年月 → 类型 → 产品 → 版本" : "档期 → 类型 → 产品 → 版本"
               : definition.kind === "proposal"
                 ? "类型 → 供应商 → 产品 → 版本"
@@ -2988,6 +2989,9 @@
     function visibleProductGroupsInDisplayOrder() {
       return visibleProductSections().flatMap(section => {
         if (sortMode !== "workflow") return section.groups;
+        if (section.kind === "project") {
+          return projectGroupSections(section.groups).flatMap(project => productTypeGroupsInDisplayOrder(project.groups));
+        }
         if (section.kind === "campaign") {
           return campaignGroupSections(section.groups).flatMap(campaignSection =>
             productTypeGroupsInDisplayOrder(campaignSection.groups)
@@ -3062,10 +3066,8 @@
     function renderCounts() {
       const pending = records.filter(row => row.status === "待处理").length;
       const confirmed = records.filter(row => row.status === "已确认").length;
-      const imported = records.filter(row => isImportedToCategoryLab(row)).length;
       countEls.pending.textContent = pending;
       countEls.confirmed.textContent = confirmed;
-      countEls.imported.textContent = imported;
       countEls.all.textContent = records.length;
       document.querySelectorAll("[data-status-filter]").forEach(button => {
         button.classList.toggle("active", !crowdView && button.dataset.statusFilter === statusFilter);
@@ -3101,6 +3103,28 @@
       })).filter(year => year.campaigns.length);
     }
 
+    function buildCrowdProjectSections(allRecords = [], query = "") {
+      const groups = new Map();
+      const needle = query.trim().toLocaleLowerCase();
+      for (const row of allRecords) {
+        if (row.round_conclusion !== "通过且进入众测" && row.tasting_scene !== "众测后优化") continue;
+        const key = effectiveProductGroupKey(row, allRecords);
+        if (!groups.has(key)) groups.set(key, { key, versions: [] });
+        groups.get(key).versions.push(row);
+      }
+      const projects = new Map();
+      for (const group of groups.values()) {
+        group.versions.sort((a, b) => compareRecordSequence(b, a));
+        group.latest = group.versions[0];
+        const name = projectNameForRecord(group.latest, allRecords);
+        if (needle && !`${name} ${group.versions.map(row => `${row.product_name} ${row.supplier_name}`).join(' ')}`.toLocaleLowerCase().includes(needle)) continue;
+        if (!projects.has(name)) projects.set(name, []);
+        projects.get(name).push(group);
+      }
+      return [...projects].sort(([a], [b]) => a && b ? a.localeCompare(b, 'zh-CN') : a ? -1 : 1)
+        .map(([name, products]) => ({ name, project: true, products: products.sort((a, b) => String(a.latest.product_name || '').localeCompare(String(b.latest.product_name || ''), 'zh-CN')) }));
+    }
+
     function crowdPrice(row) {
       const raw = row.quote_rmb;
       const value = Number(raw);
@@ -3134,10 +3158,10 @@
     }
 
     function crowdPeriodHtml(brand, year, campaign) {
-      const periodName = campaign.name || (brand.key === "ora" ? "月份待补充" : "档期待补充");
-      return `<details class="crowd-campaign" open><summary>${escapeHtml(periodName)}<span>${campaign.products.length} 个产品</span></summary>
+      const periodName = campaign.name || (campaign.project ? "项目待补充" : brand.key === "ora" ? "月份待补充" : "档期待补充");
+      return `<details class="crowd-campaign" ${campaign.project ? `data-crowd-project="${escapeAttr(periodName)}"` : ""} open><summary>${escapeHtml(periodName)}<span>${campaign.products.length} 个产品</span></summary>
         ${crowdTypeSections(campaign.products).map(typeSection => {
-          const key = JSON.stringify([brand.key, year, campaign.name, typeSection.type]);
+          const key = JSON.stringify([brand.key, campaign.project ? "project" : "campaign", year, campaign.name, typeSection.type]);
           const expanded = !collapsedCrowdTypes.has(key);
           return `<section class="crowd-type" data-crowd-type="${escapeAttr(typeSection.type)}">
             <button class="crowd-type-bar product-type-bar" type="button" data-crowd-type-toggle="${escapeAttr(key)}" aria-expanded="${expanded}">
@@ -3145,7 +3169,7 @@
               <span class="product-type-meta"><span>${typeSection.products.length} 个产品</span><span class="product-type-caret" aria-hidden="true">▼</span></span>
             </button>
             <div data-crowd-type-body ${expanded ? "" : "hidden"}>
-              <table class="crowd-table" aria-label="${escapeAttr(`${brand.label} ${year || '年份待补充'} ${periodName} ${typeSection.type}`)}">
+              <table class="crowd-table" aria-label="${escapeAttr(`${brand.label} ${campaign.project ? '' : year || '年份待补充'} ${periodName} ${typeSection.type}`)}">
                 <thead><tr><th scope="col">产品名称</th><th scope="col">供应商</th><th scope="col">版本 / 阶段</th><th scope="col">报价（元）</th></tr></thead>
                 ${typeSection.products.map(group => `<tbody>${crowdProductRow(group.latest, group)}${expandedCrowdProducts.has(group.key) ? group.versions.slice(1).map(row => crowdProductRow(row, group, true)).join('') : ''}</tbody>`).join('')}
               </table>
@@ -3157,14 +3181,19 @@
 
     function renderCrowdProducts() {
       const pane = document.querySelector('#crowdProductsPane');
-      const brands = BRAND_DEFINITIONS.map(brand => ({ ...brand,
-        years: buildCrowdSections(records.filter(row => testCategoryBrand(row.test_category) === brand.key), crowdSearch)
-      })).filter(brand => brand.years.length);
-      const brandCount = brand => brand.years.reduce((sum, year) => sum + year.campaigns.reduce((n, campaign) => n + campaign.products.length, 0), 0);
+      const brands = BRAND_DEFINITIONS.map(brand => {
+        const brandRecords = records.filter(row => testCategoryBrand(row.test_category) === brand.key);
+        return { ...brand,
+          projects: buildCrowdProjectSections(brandRecords.filter(row => isOraNewTest(row.test_category)), crowdSearch),
+          years: buildCrowdSections(brandRecords.filter(row => !isOraNewTest(row.test_category)), crowdSearch)
+        };
+      }).filter(brand => brand.projects.length || brand.years.length);
+      const brandCount = brand => brand.projects.reduce((sum, project) => sum + project.products.length, 0) + brand.years.reduce((sum, year) => sum + year.campaigns.reduce((n, campaign) => n + campaign.products.length, 0), 0);
       const total = brands.reduce((sum, brand) => sum + brandCount(brand), 0);
-      pane.innerHTML = `<div class="crowd-inner"><div class="crowd-heading"><div><h2>众测产品信息</h2><p>按品牌、年份、档期 / 月份、品类查找 · 报价对应产品版本，含税含运</p></div><span class="crowd-total">${total} 个产品 · 默认显示最新众测相关版本</span></div>${brands.length ? brands.map(brand => `
+      pane.innerHTML = `<div class="crowd-inner"><div class="crowd-heading"><div><h2>众测产品信息</h2><p>按品牌、项目 / 档期、品类查找 · 报价对应产品版本，含税含运</p></div><span class="crowd-total">${total} 个产品 · 默认显示最新众测相关版本</span></div>${brands.length ? brands.map(brand => `
         <section class="crowd-brand brand-${brand.key}" data-crowd-brand="${brand.key}">
           <header class="crowd-brand-bar"><h3 class="crowd-brand-title">${escapeHtml(brand.label)}</h3><span>${brandCount(brand)} 个产品</span></header>
+          ${brand.projects.length ? `<h4 class="crowd-year-title">新品测试</h4>${brand.projects.map(project => crowdPeriodHtml(brand, '', project)).join('')}` : ''}
           ${brand.years.map(section => `<section data-crowd-year="${escapeAttr(section.year)}">
             <h4 class="crowd-year-title">${section.year ? `${escapeHtml(section.year)} 年` : '年份待补充'}</h4>
             ${section.campaigns.map(campaign => crowdPeriodHtml(brand, section.year, campaign)).join('')}
@@ -3185,7 +3214,7 @@
       document.querySelector('#crowdProductsTab').setAttribute('aria-pressed', String(visible));
       document.querySelector('.sort-control').classList.toggle('hidden', visible);
       exportBtn.classList.toggle('hidden', visible);
-      searchInput.placeholder = visible ? '搜索产品名称、供应商' : '搜索供应商、产品、摘要';
+      searchInput.placeholder = visible ? '搜索产品名称、供应商、项目' : '搜索供应商、产品、项目、摘要';
       renderCounts();
       if (visible) renderCrowdProducts();
     }
@@ -3420,7 +3449,8 @@
     }
 
     function workflowSectionHtml(section, activeGroupKey, showProcessingStatus) {
-      const shouldGroupCampaigns = section.kind === "campaign" && ["已确认", "已导入"].includes(statusFilter);
+      if (section.kind === "project") return projectWorkflowHtml(section.groups, section, activeGroupKey, showProcessingStatus);
+      const shouldGroupCampaigns = section.kind === "campaign" && statusFilter === "已确认";
       if (shouldGroupCampaigns) {
         return campaignWorkflowHtml(section.groups, section, activeGroupKey, showProcessingStatus);
       }
@@ -3431,6 +3461,33 @@
         return productTypeSectionsHtml(section.groups, section.key, activeGroupKey, showProcessingStatus, section.key, { collapsible: true });
       }
       return productTypeSectionsHtml(section.groups, section.key, activeGroupKey, showProcessingStatus);
+    }
+
+    function projectGroupSections(groups) {
+      const projects = new Map();
+      groups.forEach(group => {
+        const name = projectNameForRecord(group.latest);
+        if (!projects.has(name)) projects.set(name, []);
+        projects.get(name).push(group);
+      });
+      return [...projects].map(([name, groups]) => ({ name, key: JSON.stringify(["ora-project", name]), groups }))
+        .sort((a, b) => a.name && b.name ? a.name.localeCompare(b.name, "zh-CN", { numeric: true }) : a.name ? -1 : b.name ? 1 : 0);
+    }
+
+    function projectWorkflowHtml(groups, section, activeGroupKey, showProcessingStatus) {
+      return projectGroupSections(groups).map(project => {
+        const expanded = !collapsedCampaignGroupKeys.has(project.key);
+        const count = project.groups.reduce((sum, group) => sum + group.records.length, 0);
+        return `<section class="campaign-group-section" data-project-group="${escapeAttr(project.name)}">
+          <button class="campaign-group-bar project-group-bar" data-project-group-toggle="${escapeAttr(project.key)}" type="button" aria-expanded="${expanded}">
+            <strong>${escapeHtml(project.name || "项目待补充")}</strong>
+            <span class="campaign-group-meta"><span>${project.groups.length} 个产品 · ${count} 条记录</span><span class="campaign-group-caret" aria-hidden="true">▼</span></span>
+          </button>
+          <div data-project-group-body="${escapeAttr(project.key)}" ${expanded ? "" : "hidden"}>
+            ${productTypeSectionsHtml(project.groups, section.key, activeGroupKey, showProcessingStatus, project.key)}
+          </div>
+        </section>`;
+      }).join("");
     }
 
     function campaignWorkflowHtml(groups, section, activeGroupKey, showProcessingStatus) {
@@ -3881,6 +3938,7 @@
           <h3 class="section-title-bar">产品经理补充测试结果</h3>
           <div class="edit-grid">
             ${fieldBlock("报价（元，含税含运）", fieldInput("quote_rmb", row.quote_rmb, "线下确认后填写"))}
+            ${projectPickerField(row)}
             ${campaignPickerField(row)}
             <label class="field-label" data-pm-maintenance ${testCategoryKind(row.test_category) === "maintenance" || row.maintenance_purpose ? "" : "hidden"}>
               <span>老品维护 · 测试目的</span>
@@ -3899,15 +3957,11 @@
     }
 
     function renderMeta(row) {
-      const imported = isImportedToCategoryLab(row);
       const versionStage = deriveVersionStage(row, records);
-      const importText = imported ? "已导入 Category Lab" : "未导入 Category Lab";
-      const importClass = imported ? "import-state ok" : row.status === "已确认" ? "import-state warn" : "import-state";
       metaPanel.innerHTML = `
         <div class="meta-actions">
           <button class="primary" data-confirm-active type="button" ${roleCanEdit() ? "" : "disabled"}>确认提交</button>
           <button data-save-active type="button" ${roleCanEdit() ? "" : "disabled"}>保存修改</button>
-          <button data-import-active type="button" ${roleCanEdit() ? "" : "disabled"}>${imported ? "更新导入 Category Lab" : "导入 Category Lab"}</button>
           <button data-open-product-grouping type="button" ${roleCanEdit() ? "" : "disabled"}>调整产品归组</button>
           <button class="danger" data-delete-active type="button" ${roleCanEdit() ? "" : "disabled"}>删除记录</button>
         </div>
@@ -3917,8 +3971,7 @@
           ${kv("送样时间", row.sample_date)}
           ${kv("类型", row.product_type)}
           ${kv("测试类别", testCategoryLabel(row.test_category))}
-          ${kv(testCategoryBrand(row.test_category) === "ora" ? "年份" : "档期年份", effectiveCampaignYear(row))}
-          ${kv(testCategoryBrand(row.test_category) === "ora" ? "月份" : "档期名称", recordPeriodValue(row))}
+          ${isOraNewTest(row.test_category) ? kv("项目名称", projectNameForRecord(row) || "项目待补充") : `${kv(testCategoryBrand(row.test_category) === "ora" ? "年份" : "档期年份", effectiveCampaignYear(row))}${kv(testCategoryBrand(row.test_category) === "ora" ? "月份" : "档期名称", recordPeriodValue(row))}`}
           ${row.maintenance_purpose ? kv("老品维护 · 测试目的", row.maintenance_purpose) : ""}
           ${kv("版本", row.version_label)}
           ${versionStage ? kv("版本阶段", versionStage) : ""}
@@ -3926,7 +3979,6 @@
           ${kv("长度（mm）", row.length_mm)}
           ${kv("宽度（mm）", row.width_mm)}
           ${kv("高度（mm）", row.height_mm)}
-          <div class="${importClass}">${escapeHtml(importText)}</div>
           ${kv("提交编号", row.followup_code)}
           ${kv("提交时间", dateText(row.created_at))}
           ${kv("更新时间", dateText(row.updated_at))}
@@ -4024,8 +4076,6 @@
         records.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
         lastRefreshText.textContent = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
         renderAll(activeRecordId);
-        const missingImport = records.filter(row => row.status === "已确认" && !isImportedToCategoryLab(row)).length;
-        if (missingImport > 0) showMessage(`有 ${missingImport} 条已确认记录还没有导入 Category Lab。`, "");
       } catch (error) {
         showMessage(error.message || "读取失败。", "error");
       } finally {
@@ -4082,14 +4132,16 @@
       const quoteCleaned = quoteText.replace(/[^0-9.]/g, "");
       const quote = Number(quoteCleaned);
       const campaignYear = normalizeCampaignYear(detailValue("campaign_year", effectiveCampaignYear(row))) || effectiveCampaignYear(row);
-      const campaign = recordCampaignName({ ...row, test_category: detailValue("test_category", row.test_category), campaign_year: campaignYear, campaign: detailValue("campaign", row.campaign || "") });
+      const category = testCategoryLabel(detailValue("test_category", row.test_category));
+      const campaign = isOraNewTest(category) ? String(row.campaign || "") : recordCampaignName({ ...row, test_category: category, campaign_year: campaignYear, campaign: detailValue("campaign", row.campaign || "") });
       return {
         product_name: detailValue("product_name", row.product_name || "").trim() || row.product_name || "",
         supplier_name: detailValue("supplier_name", row.supplier_name || "").trim() || row.supplier_name || "",
         version_label: detailValue("version_label", row.version_label || "").trim(),
         sample_date: detailValue("sample_date", row.sample_date || "").trim() || null,
         product_type: detailValue("product_type", row.product_type || "").trim(),
-        test_category: detailValue("test_category", row.test_category || "").trim(),
+        test_category: category,
+        project_name: detailValue("project_name", projectNameForRecord(row)).trim(),
         campaign_year: campaignYear,
         campaign,
         maintenance_purpose: detailValue("maintenance_purpose", row.maintenance_purpose || "").trim(),
@@ -4122,8 +4174,9 @@
         const original = field === "campaign_year"
           ? effectiveCampaignYear(row)
           : field === "campaign"
-            ? recordCampaignName(row)
-            : row[field];
+            ? isOraNewTest(row.test_category) ? String(row.campaign || "") : recordCampaignName(row)
+            : field === "test_category" ? testCategoryLabel(row.test_category)
+              : field === "project_name" ? projectNameForRecord(row) : row[field];
         return comparableRecordValue(payload[field]) !== comparableRecordValue(original);
       });
       return fieldsChanged || adminImageDraftChanged(row);
@@ -4304,88 +4357,6 @@
       return updated;
     }
 
-    function categoryLabRecord(row) {
-      const tastingSummary = [
-        row.round_conclusion ? `本轮结论：${row.round_conclusion}` : "",
-        row.tasting_feedback ? `测试反馈：${row.tasting_feedback}` : ""
-      ].filter(Boolean).join("\n");
-      return {
-        id: `supplier-${row.id}`,
-        time: row.created_at ? dateText(row.created_at) : new Date().toLocaleString("zh-CN"),
-        category: row.product_type || "",
-        campaignYear: effectiveCampaignYear(row),
-        campaign: recordPeriodValue(row),
-        project: row.product_name || "",
-        supplier: row.supplier_name || "",
-        brand: "",
-        spec: row.finished_spec || "",
-        price: row.quote_rmb || "",
-        weight: "",
-        length: row.length_mm || "",
-        width: row.width_mm || "",
-        height: row.height_mm || "",
-        version: row.version_label || "V1",
-        versionStage: deriveVersionStage(row, records),
-        testDate: row.sample_date || "",
-        type: "OEM 品类测试",
-        images: imageUrls(row),
-        image: imageUrls(row)[0] || "",
-        overallEvaluation: tastingSummary,
-        sensory: {
-          appearance: "",
-          appearanceScore: "",
-          aroma: "",
-          aromaScore: "",
-          flavor: row.tasting_feedback || "",
-          flavorScore: "",
-          texture: "",
-          textureScore: ""
-        },
-        materials: row.ingredients_structure || "",
-        yield: {},
-        note: row.next_step_direction || "",
-        supplierSubmissionId: row.id,
-        supplierSubmissionSummary: [
-          row.followup_code ? `提交编号：${row.followup_code}` : "",
-          row.product_type ? `产品类型：${row.product_type}` : "",
-          row.test_category ? `测试类别：${testCategoryLabel(row.test_category)}` : "",
-          row.campaign ? `${testCategoryBrand(row.test_category) === "ora" ? "年月" : "档期"}：${effectiveCampaignYear(row)} · ${recordPeriodValue(row)}` : "",
-          row.maintenance_purpose ? `老品维护测试目的：${row.maintenance_purpose}` : "",
-          row.length_mm || row.width_mm || row.height_mm ? `尺寸（mm）：长 ${row.length_mm || "-"} / 宽 ${row.width_mm || "-"} / 高 ${row.height_mm || "-"}` : "",
-          row.version_change ? `本版调整点：${row.version_change}` : "",
-          row.core_ingredients_selling_points ? `核心原料及卖点：${row.core_ingredients_selling_points}` : "",
-          row.key_blocker ? `关键卡点 / 备注：${row.key_blocker}` : ""
-        ].filter(Boolean).join("\n")
-      };
-    }
-
-    async function importToCategoryLab(id = activeRecordId) {
-      if (!roleCanEdit() || !id) return;
-      const row = recordById(id);
-      if (!row) return;
-      const mergedRow = { ...row, ...activePayload(), status: "已确认" };
-      const raw = localStorage.getItem(CATEGORYLAB_STORAGE_KEY);
-      if (!raw) {
-        showMessage("当前浏览器还没有 Category Lab 本地数据。请先打开一次 Category Lab，再回来导入。", "error");
-        return;
-      }
-      let data;
-      try {
-        data = JSON.parse(raw);
-      } catch (error) {
-        showMessage("Category Lab 本地数据无法读取，未导入。", "error");
-        return;
-      }
-      data.devRecords = Array.isArray(data.devRecords) ? data.devRecords : [];
-      const record = categoryLabRecord(mergedRow);
-      const index = data.devRecords.findIndex(item => item.supplierSubmissionId === id || item.id === record.id);
-      if (index >= 0) data.devRecords[index] = { ...data.devRecords[index], ...record };
-      else data.devRecords.unshift(record);
-      localStorage.setItem(CATEGORYLAB_STORAGE_KEY, JSON.stringify(data));
-      const updated = await saveRow(id, { ...mergedRow, status: "已确认" });
-      showMessage(`已导入 Category Lab：${updated?.product_name || mergedRow.product_name || ""}`, "success");
-    }
-
     async function deleteRow(id = activeRecordId) {
       if (!roleCanEdit() || !id) return;
       const row = recordById(id);
@@ -4420,6 +4391,7 @@
         "送样时间",
         "产品类型",
         "测试类别",
+        "项目名称",
         "档期年份",
         "档期名称",
         "老品维护测试目的",
@@ -4437,7 +4409,6 @@
         "报价（元，含税含运）",
         "核心原料及卖点",
         "关键卡点 / 备注",
-        "Category Lab 导入",
         "状态"
       ];
       const rows = visibleRecords().map(row => [
@@ -4449,6 +4420,7 @@
         row.sample_date,
         row.product_type,
         testCategoryLabel(row.test_category),
+        isOraNewTest(row.test_category) ? projectNameForRecord(row) : "",
         effectiveCampaignYear(row),
         recordPeriodValue(row),
         row.maintenance_purpose,
@@ -4466,7 +4438,6 @@
         row.quote_rmb,
         row.core_ingredients_selling_points,
         row.key_blocker,
-        isImportedToCategoryLab(row) ? "已导入 Category Lab" : "未导入 Category Lab",
         row.status
       ]);
       const csv = [headers, ...rows].map(row => row.map(csvEscape).join(",")).join("\n");
@@ -4625,6 +4596,14 @@
         renderList();
         return;
       }
+      const projectToggle = event.target.closest("[data-project-group-toggle]");
+      if (projectToggle) {
+        const key = projectToggle.dataset.projectGroupToggle;
+        if (collapsedCampaignGroupKeys.has(key)) collapsedCampaignGroupKeys.delete(key); else collapsedCampaignGroupKeys.add(key);
+        renderList();
+        [...listEl.querySelectorAll('[data-project-group-toggle]')].find(button => button.dataset.projectGroupToggle === key)?.focus();
+        return;
+      }
       const productTypeToggle = event.target.closest("[data-product-type-toggle]");
       if (productTypeToggle) {
         const key = productTypeToggle.dataset.productTypeToggle;
@@ -4757,7 +4736,6 @@
           await confirmActiveRow();
           showMessage("已确认。", "success");
         }
-        if (event.target.closest("[data-import-active]")) await importToCategoryLab();
         if (event.target.closest("[data-open-product-grouping]")) await runWithUnsavedGuard(async () => openProductGroupingModal());
         if (event.target.closest("[data-delete-active]")) await deleteRow();
       } catch (error) {

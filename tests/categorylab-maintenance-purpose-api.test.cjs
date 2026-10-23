@@ -27,3 +27,14 @@ test('manual grouping rejects different brands while allowing same-brand version
   assert.throws(() => api.validateProductGroupingRecords([row, { ...row, test_category: 'Ora档期测试' }]), /品牌/);
   assert.equal(api.validateProductGroupingRecords([row, { ...row, test_category: "Peet's老品维护" }]), true);
 });
+
+
+test('project names are PM-only and partial updates preserve unrelated record fields', () => {
+  assert.deepEqual(api.normalizeAdminUpdatePayload({ project_name: '  早餐系列  ' }), { project_name: '早餐系列' });
+  assert.deepEqual(api.normalizeAdminUpdatePayload({ project_name: '' }), { project_name: null });
+  assert.deepEqual(api.normalizeAdminUpdatePayload({ quote_rmb: 8.5 }), { quote_rmb: 8.5 });
+  const source = { product_name: '新品', test_category: 'Ora新品测试', project_name: '供应商不应设置' };
+  assert.equal(Object.hasOwn(api.sanitizePublicSubmissionPayload(source), 'project_name'), false);
+  assert.equal(Object.hasOwn(api.publicSubmissionRecord(source), 'project_name'), false);
+  assert.equal(api.sanitizePublicSubmissionPayload(source).test_category, 'Ora新品测试');
+});
