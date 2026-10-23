@@ -10,7 +10,18 @@ test.before(async () => {
   browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
 });
 test.after(async () => { await browser?.close(); await new Promise(r => server.close(r)); });
-test.beforeEach(async () => { page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); await page.goto(url); await page.locator('#pendingCount').getByText('1', { exact: true }).waitFor(); });
+test.beforeEach(async () => {
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.setDefaultTimeout(5000);
+  await page.addInitScript(() => sessionStorage.setItem('categorylabCloudbaseAdminCode', 'test-only'));
+  await page.route('**/api/supplier-feedback', async route => {
+    if (route.request().postDataJSON().action === 'adminLogin') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { profile: { role: 'owner' } } }) });
+    } else await route.continue();
+  });
+  await page.goto(url);
+  await page.locator('#pendingCount').getByText('1', { exact: true }).waitFor();
+});
 test.afterEach(async () => { await page.close(); });
 
 test('adds independent overview without altering original status tabs', async () => {
