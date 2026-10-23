@@ -261,3 +261,14 @@ test('brand sections are distinct and category triangles collapse only their own
   assert.equal(await button.getAttribute('aria-expanded'), 'true');
   assert.equal(requests.filter(item => !['adminList', 'adminLogin'].includes(item.action)).length, 0);
 });
+
+
+test('narrow sidebar keeps brand labels and category triangles within its width', async () => {
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.evaluate(() => document.documentElement.style.setProperty('--inbox-left-width', '260px'));
+  assert.equal(await page.locator('.list-pane').evaluate(el => el.scrollWidth <= el.clientWidth + 1), true);
+  assert.equal(await page.locator('.product-type-caret').evaluateAll(nodes => {
+    const pane = document.querySelector('.list-pane').getBoundingClientRect();
+    return nodes.filter(node => node.getClientRects().length).every(node => node.getBoundingClientRect().right <= pane.right);
+  }), true);
+});

@@ -275,6 +275,7 @@
     }
     .submission-list {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
     }
     .test-category-section {
       background: var(--paper);
@@ -389,6 +390,9 @@
       cursor: pointer;
     }
     .campaign-group-bar strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      white-space: normal;
       font-family: var(--serif);
       font-size: 13px;
       line-height: 1.45;
@@ -1447,7 +1451,7 @@
     .inbox-brand-bar { padding: 11px 12px; }
     .inbox-brand-title { margin: 0; font-size: 16px; font-weight: 800; }
     .inbox-brand-bar > span, .crowd-brand-bar > span { font-size: 12px; font-variant-numeric: tabular-nums; }
-    .inbox-brand { border-left: 3px solid var(--brand-color); }
+    .inbox-brand { min-width: 0; border-left: 3px solid var(--brand-color); }
     .crowd-brand + .crowd-brand { margin-top: 36px; }
     .crowd-brand-bar { padding: 14px 18px; border-radius: 6px; }
     .crowd-brand-title { margin: 0; font-size: 21px; }
